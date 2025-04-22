@@ -60,8 +60,8 @@ type Exporter struct {
 	collectServerstats bool
 	chmodSocket        bool
 	dnsLookups         bool
-
-	logger *slog.Logger
+	lastUp             atomic.Value
+	logger             *slog.Logger
 }
 
 type typedDesc struct {
@@ -206,4 +206,16 @@ func (e Exporter) dnsLookup(logger *slog.Logger, address net.IP) string {
 	}
 	sort.Strings(names)
 	return strings.Join(slices.Compact(names), ",")
+}
+
+// Health checks if the exporter can reach chrony and returns true if healthy.
+func (e *Exporter) Health() bool {
+	logger := e.logger.With("health", "start health check")
+	_, err, cleanup := e.dial()
+	defer cleanup()
+	if err != nil {
+		logger.Debug("Couldn't connect to chrony", "address", e.address, "err", err)
+		return false
+	}
+	return true
 }

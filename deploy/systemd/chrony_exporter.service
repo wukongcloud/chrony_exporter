@@ -1,0 +1,18 @@
+# /etc/systemd/system/chrony_exporter.service
+[Unit]
+Description=Chrony Exporter
+After=network.target chrony.service
+Requires=chrony.service
+PartOf=chrony.service
+
+[Service]
+User=113
+ExecStart=/usr/local/bin/chrony_exporter --chrony.address="unix:///run/chrony/chronyd.sock" --collector.serverstats --collector.sources --collector.dns-lookups
+KillMode=process
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+#StartLimitIntervalSec=60
+
+[Install]
+WantedBy=multi-user.target

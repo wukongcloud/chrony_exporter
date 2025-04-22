@@ -1,0 +1,15 @@
+# /etc/datadog-agent/conf.d/openmetrics.d/chrony_exporter.yaml
+init_config:
+
+instances:
+  - name: chrony_exporter
+    namespace: chrony
+    metrics:
+      - chrony_*
+    openmetrics_endpoint: http://localhost:9123/metrics
+    health_service_check: true
+    username: admin
+    password: replace_with_your_own_secret
+    tags:
+      - exporter:chrony
+      - service:ntp

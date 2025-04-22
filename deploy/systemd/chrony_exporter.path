@@ -1,0 +1,9 @@
+# /etc/systemd/system/chrony_exporter.path
+[Unit]
+Description=Watch chronyd socket to trigger exporter
+
+[Path]
+PathExists=/run/chrony/chronyd.sock
+
+[Install]
+WantedBy=multi-user.target

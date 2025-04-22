@@ -14,6 +14,7 @@
 package main
 
 import (
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log/slog"
 	"net/http"
 	"os"
@@ -23,7 +24,6 @@ import (
 	kingpin "github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	versioncollector "github.com/prometheus/client_golang/prometheus/collectors/version"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/promslog"
 	"github.com/prometheus/common/promslog/flag"
 	"github.com/prometheus/common/version"
@@ -75,6 +75,14 @@ func main() {
 	kingpin.Flag(
 		"collector.dns-lookups", "do reverse DNS lookups",
 	).Default("true").BoolVar(&conf.DNSLookups)
+	basicAuthUser := kingpin.Flag(
+		"web.basic-auth-user",
+		"Username for basic auth on /metrics.",
+	).Default("admin").Envar("BASIC_AUTH_USER").String()
+	basicAuthPass := kingpin.Flag(
+		"web.basic-auth-password",
+		"Password for basic auth on /metrics.",
+	).Default("replace_with_your_own_secret").Envar("BASIC_AUTH_PASSWORD").String()
 
 	metricsPath := kingpin.Flag(
 		"web.telemetry-path",
@@ -96,8 +104,17 @@ func main() {
 
 	exporter := collector.NewExporter(conf, logger)
 	prometheus.MustRegister(exporter)
+	go func() {
+		metrics := make(chan prometheus.Metric)
+		go func() {
+			exporter.Collect(metrics)
+			for range metrics {
+				// 忽略内容
+			}
+		}()
+	}()
 
-	http.Handle(*metricsPath, promhttp.Handler())
+	//http.Handle(*metricsPath, promhttp.Handler())
 	if *metricsPath != "/" && *metricsPath != "" {
 		landingConfig := web.LandingConfig{
 			Name:        "Chrony Exporter",
@@ -119,7 +136,27 @@ func main() {
 			logger.Error("error creating landing page", "err", err)
 			os.Exit(1)
 		}
-		http.Handle("/", landingPage)
+
+		metricsHandler := promhttp.Handler()
+		if *basicAuthUser != "" && *basicAuthPass != "" {
+			http.Handle(*metricsPath, basicAuthMiddleware(metricsHandler, *basicAuthUser, *basicAuthPass))
+			http.Handle("/", basicAuthMiddleware(landingPage, *basicAuthUser, *basicAuthPass))
+		} else {
+			http.Handle(*metricsPath, metricsHandler)
+			http.Handle("/", landingPage)
+		}
+
+		// no need authentication
+		http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			upValue := exporter.Health()
+			if upValue {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("ok\n"))
+			} else {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("unhealthy\n"))
+			}
+		})
 	}
 
 	server := &http.Server{}
@@ -127,4 +164,16 @@ func main() {
 		logger.Error("HTTP listener stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func basicAuthMiddleware(handler http.Handler, user, pass string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != user || p != pass {
+			w.Header().Set("WWW-Authenticate", `Basic realm="metrics"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
 }

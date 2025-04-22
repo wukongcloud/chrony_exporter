@@ -188,6 +188,19 @@ func (e Exporter) getSourcesMetrics(logger *slog.Logger, ch chan<- prometheus.Me
 	}
 
 	for _, r := range results {
+		// filter invalid source address
+		if r.IPAddr == nil || r.IPAddr.IsUnspecified() || r.IPAddr.IsLoopback() {
+			logger.Warn("Skipping invalid source address", "ip", r.IPAddr)
+			continue
+		}
+
+		// filter likely bogus IPv6 address
+		if ip4 := r.IPAddr.To4(); ip4 == nil && r.IPAddr.IsGlobalUnicast() {
+			if r.IPAddr[0] == 0 {
+				logger.Warn("Skipping likely bogus IPv6 address", "ip", r.IPAddr)
+				continue
+			}
+		}
 		sourceAddress := r.IPAddr.String()
 		sourceName := e.dnsLookup(logger, r.IPAddr)
 
