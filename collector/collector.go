@@ -27,6 +27,7 @@ import (
 
 	"github.com/facebook/time/ntp/chrony"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/shirou/gopsutil/process"
 )
 
 const (
@@ -208,14 +209,22 @@ func (e Exporter) dnsLookup(logger *slog.Logger, address net.IP) string {
 	return strings.Join(slices.Compact(names), ",")
 }
 
-// Health checks if the exporter can reach chrony and returns true if healthy.
+// Health checks if the chrony process exists.
 func (e *Exporter) Health() bool {
-	logger := e.logger.With("health", "start health check")
-	_, err, cleanup := e.dial()
-	defer cleanup()
+	procs, err := process.Processes()
 	if err != nil {
-		logger.Debug("Couldn't connect to chrony", "address", e.address, "err", err)
 		return false
 	}
-	return true
+
+	for _, proc := range procs {
+		name, err := proc.Name()
+		if err != nil {
+			continue
+		}
+		if name == "chronyd" {
+			return true
+		}
+	}
+
+	return false
 }
